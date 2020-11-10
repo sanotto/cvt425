@@ -1,0 +1,961 @@
+         //78BUILDR4 -- Utility to build programs by searching for compile statement
+        Dcl-PR BUILDR4;
+         peObj Char(20) const;
+        End-PR;
+ 
+         //* This is equivalent to *ENTRY PLIST:
+        Dcl-PI BUILDR4;
+         peObj Char(20) const;
+        End-PI;
+        Dcl-PR QMHSNDPM  ExtPgm('QMHSNDPM');
+         msgid Char(7) const;
+         msgf Char(20) const;
+         msgdta Char(32702) const options(*varsize);
+         dtalen Int(10) const;
+         msgtype Char(10) const;
+         callstack Char(10) const;
+         stackcount Int(10) const;
+         msgkey Char(4);
+         errorcode Char(8) const;
+        End-PR;
+
+        Dcl-PR QMHRSNEM  ExtPgm('QMHRSNEM');
+         MsgKey Char(4) const;
+         ErrorCode Char(8) const;
+         ToStack Char(10) const;
+         ToStackLen Int(10) const;
+         ToStackFmt Char(8) const;
+         FromStack Pointer const;
+         FromStackCtr Int(10) const;
+        End-PR;
+
+        Dcl-DS RSNM0100  qualified;
+         Count Int(10) inz(1);
+         modqual Char(10) inz('*NONE');
+         pgmqual Char(10) inz('*NONE');
+         len Int(10) inz(10);
+         ident Char(10) inz('*PGMBDY');
+        End-DS;
+
+        Dcl-PR QMHMOVPM  ExtPgm('QMHMOVPM');
+         MsgKey Char(4) const;
+         MsgTypes Char(40) const;
+         NumMsgTypes Int(10) const;
+         ToStack Char(10) const;
+         ToStackCnt Int(10) const;
+         ErrorCode Char(8) const;
+        End-PR;
+
+        Dcl-PR loadcmds;
+         cmd Varchar(32702) varying dim(MAX_CMD);
+        End-PR;
+        Dcl-PR dosubs;
+         cmd Varchar(32702) varying;
+        End-PR;
+        Dcl-PR runcmds;
+         cmd Varchar(32702) varying dim(MAX_CMD);
+         count Int(10) const;
+        End-PR;
+        Dcl-PR getFiscYear;
+        End-PR;
+        Dcl-PR getCalYear;
+        End-PR;
+        Dcl-PR getPriceDate;
+        End-PR;
+        Dcl-PR getSrcMbr;
+         SrcFile Char(21) const;
+         SrcMbr Char(10) const;
+         Text Varchar(52) varying options(*omit);
+         Type Char(10) options(*omit);
+         RtnLib Char(10) options(*omit);
+        End-PR;
+        Dcl-PR replace;
+         cmd Varchar(32702) varying;
+         old Varchar(10) varying const;
+         new Varchar(52) varying const;
+        End-PR;
+        Dcl-PR defaultcmds;
+         cmd Varchar(32702) varying dim(MAX_CMD);
+        End-PR;
+        Dcl-PR liblist;
+         Libl Char(10) dim(250);
+        End-PR;
+
+        Dcl-DS SrcAttr  qualified;
+         RecLen Int(5) overlay(SrcAttr:125);
+         Dcl-C MAX_CMD const(100);
+        End-DS;
+
+        Dcl-S SrcLib Char(10);
+        Dcl-S SrcObj Char(10);
+        Dcl-S SrcFile Char(21);
+        Dcl-S SrcMbr Char(10);
+        Dcl-S objname Char(10);
+        Dcl-S objlib Char(10);
+
+        Dcl-S count Int(10);
+        Dcl-S cmd Varchar(32702) varying dim(MAX_CMD);
+        Dcl-S x Int(10);
+        Dcl-S SrcText Varchar(52) varying;
+        Dcl-S msgkey Char(4);
+
+          SrcLib  = %subst(peSrcFile:11:10);
+          SrcObj  = %subst(peSrcFile:1:10);
+          SrcFile = %trim(SrcLib) + '/' + %trim(SrcObj);
+          objlib  = %subst(peObj:11:10);
+          objname = %subst(peObj:1:10);
+
+          if (peMbr = '*OBJ');
+             SrcMbr = ObjName;
+          else;
+             SrcMbr = peMbr;
+          endif;
+
+          getSrcMbr( SrcFile: SrcMbr: SrcText: *OMIT: SrcLib);
+          SrcFile = %trim(SrcLib) + '/' + %trim(SrcObj);
+
+          count = loadcmds(cmd);
+          if (count = 0);
+             count = defaultcmds(cmd);
+          endif;
+
+          for x = 1 to count;
+             dosubs(cmd(x));
+          endfor;
+
+          if runcmds(cmd:count);
+              QMHSNDPM( 'CPF9897'
+                      : 'QCPFMSG   *LIBL'
+                      : 'Commands in source code executed successfully.'
+                      : %len('Commands in source code executed successfully.')
+                      : '*COMP'
+                      : '*PGMBDY'
+                      : 1
+                      : msgkey
+                      : *ALLx'00' );
+          endif;
+
+          return;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Load all of the build commands from the source member
+         //into an array of commands.
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc loadcmds;
+         Dcl-PI loadcmds;
+           cmd Varchar(32702) varying dim(MAX_CMD);
+         End-PI;
+
+         Dcl-PR QMHRCVPM  ExtPgm('QMHRCVPM');
+           rcvvar Char(32767) options(*varsize);
+           rcvvarlen Int(10) const;
+           format Char(8) const;
+           stack Char(10) const;
+           stackctr Int(10) const;
+           type Char(10) const;
+           msgkey Char(4) const;
+           wait Int(10) const;
+           action Char(10) const;
+           errorcode Char(8) const;
+         End-PR;
+
+         Dcl-DS RCVM0100  qualified;
+           msgid Char(7) overlay(RCVM0100:13);
+           msgkey Char(4) overlay(RCVM0100:22);
+           msgdtalen Int(10) overlay(RCVM0100:45);
+           msgdta Char(8000) overlay(RCVM0100:49);
+         End-DS;
+
+         Dcl-DS LINE  qualified;
+           seq Char(6);
+           date Char(6);
+           data Char(240);
+         End-DS;
+
+         Dcl-DS id1;
+           *N Char(1) inz('*');
+           *N Char(1) inz('>');
+         End-DS;
+         Dcl-DS id2;
+           *N Char(1) inz('<');
+           *N Char(1) inz('*');
+           Dcl-S pos Int(10);
+           Dcl-S sublen Int(10);
+           Dcl-S x Int(10);
+           Dcl-S temp Varchar(240) varying;
+         End-DS;
+
+
+          open SOURCE;
+
+          // Remove the "Buffer length longer than record"
+          // message from the job log.
+
+          QMHRCVPM( RCVM0100: %size(RCVM0100): 'RCVM0100'
+                  : '*': 0: '*DIAG': *blanks
+                  : 0: '*REMOVE': x'00000008');
+
+          // Scan through source for any commands to
+          // build program with.
+
+          setll *start SOURCE;
+          read SOURCE LINE;
+
+          dow not %eof(SOURCE);
+
+             // look for start identifier
+
+             pos = %scan(id1:%subst(Line.data:1:SrcAttr.RecLen));
+             if (pos>0);
+
+                  // extract everything after start id
+
+                  pos += %len(id1);
+                  sublen = SrcAttr.reclen
+                         - %size(LINE.Seq)
+                         - %size(LINE.Date)
+                         - pos
+                         + 1;
+                  temp = %trim(%subst(line.data:pos:sublen));
+
+                  // if there's also an end id, strip if off.
+
+                  pos =%scan(id2: temp);
+                  if (pos>1);
+                     temp = %trimr(%subst(temp:1:pos-1));
+                  endif;
+
+                  // either add to the array, or add to the end of
+                  // the previous command.
+
+                  if (x>0 and %subst(cmd(x):%len(cmd(x)):1) = '-');
+                     %len(cmd(x)) = %len(cmd(x)) - 1;
+                     cmd(x) += temp;
+                  else;
+                     x += 1;
+                     cmd(x) = temp;
+                  endif;
+             endif;
+
+             read SOURCE LINE;
+          enddo;
+
+          close SOURCE;
+          return x;
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //dosubs(): This makes any necessary substitutions in the
+         //command that's to be run.
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc dosubs;
+         Dcl-PI dosubs;
+           cmd Varchar(32702) varying;
+         End-PI;
+
+         Dcl-S cmdname Char(10);
+         Dcl-S temp Char() like(cmd);
+         Dcl-S DbgView Char() like(peDbgView);
+         Dcl-S OpmView Char() like(peDbgView);
+         Dcl-S pos Int(10);
+
+        temp =  %xlate( 'abcdefghijklmnopqrstuvwxyz'
+                      : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                      : cmd );
+
+        pos = %scan(' ':temp);
+        if (pos > 1);
+           cmdname = %subst(temp:1:pos-1);
+        endif;
+
+        //------------------------------------------------------------
+        // The embedded SQL precompiler only supports DBGVIEW(*SOURCE)
+        //  and DBGVIEW(*NONE) -- but it passes DBGVIEW(*ALL) to the
+        //  underlying HLL compiler.
+        //
+        // This works around this by switching the debug view to
+        // *SOURCE when using the SQL precompiler.
+        //------------------------------------------------------------
+
+        DbgView = peDbgView;
+        if (%subst(cmdname:1:9) = 'CRTSQLRPG'
+             or %subst(cmdname:1:9) = 'CRTSQLCBL'
+             or %subst(cmdname:1:7) = 'CRTSQLC'
+             or cmdname = 'CRTSQLPLI');
+            if (DbgView='*STMT' or DbgView='*NONE');
+                DbgView='*NONE';
+            else;
+                DbgView='*SOURCE';
+            endif;
+        endif;
+
+
+        //------------------------------------------------------------
+        // WDSC requires option(*EVENTF) in order to return info
+        //  about why a compiler could not compile a program.
+        //
+        // If *EVENTF is specified, but no OPTION() was found in
+        // the commands listed in the source member, tack on the
+        // OPTION(*EVENTF) parameter.
+        //------------------------------------------------------------
+
+        if (peOption='*EVENTF');
+            pos = %scan(' OPTION(': temp);
+            if (pos = 0);
+                if ( cmdname='CRTRPGMOD'
+                     or cmdname='CRTRPGPGM'
+                     or cmdname='CRTBNDRPG'
+                     or cmdname='CRTSQLRPGI'
+                     or cmdname='CRTCLMOD'
+                     or cmdname='CRTCLPGM'
+                     or cmdname='CRTBNDCL'
+                     or cmdname='CRTCBLMOD'
+                     or cmdname='CRTBNDCBL'
+                     or cmdname='CRTCPPMOD'
+                     or cmdname='CRTBNDCPP'
+                     or cmdname='CRTCMOD'
+                     or cmdname='CRTBNDC'
+                     or cmdname='CRTPF'
+                     or cmdname='CRTLF'
+                     or cmdname='CRTDSPF'
+                     or cmdname='CRTPRTF' );
+                   cmd += ' OPTION(*EVENTF)';
+                endif;
+            endif;
+        endif;
+
+        //------------------------------------------------------------
+        //  OPM programs use OPTION(*SRCDBG) or OPTION(*LSTDBG)
+        //      instead of DBGVIEW.
+        //------------------------------------------------------------
+        select;
+        when DbgView = '*LIST' or DbgView='*ALL';
+          OpmView = '*LSTDBG';
+        when DbgView = '*SOURCE';
+          OpmView = '*SRCDBG';
+        other;
+          OpmView = '*NOSRCDBG';
+        endsl;
+
+
+        //------------------------------------------------------------
+        //  Replace the various variables in the commands with the
+        //  proper values from this program.
+        //
+        //  Note: Longer variables should be replaced first, to
+        //        avoid conflict.  For example, '&YYYY' contains
+        //        the string '&YY', so if &YY was done first, the
+        //        &YYYY would become 07YY and would never get the
+        //        4-digit year.  So the longer ones must be done
+        //        first.
+        //------------------------------------------------------------
+
+        replace(cmd: '&PLDATE': getPriceDate()             );
+        replace(cmd: '&FYYYY' : getFiscYear()              );
+        replace(cmd: '&FYY'   : %subst(getFiscYear(): 3: 2));
+        replace(cmd: '&YYYY'  : getCalYear()               );
+        replace(cmd: '&YY'    : %subst(getCalYear(): 3: 2) );
+        replace(cmd: '&ON'    : %trim(objname)             );
+        replace(cmd: '&DV'    : %trim(dbgview)             );
+        replace(cmd: '&OV'    : %trim(OpmView)             );
+        replace(cmd: '&EV'    : %trim(peOption)            );
+        replace(cmd: '&O'     : %trim(objlib)              );
+        replace(cmd: '&X'     : SrcText                    );
+        replace(cmd: '&R'     : %trim(peReplace)           );
+        replace(cmd: '&F'     : %trim(srcobj)              );
+        replace(cmd: '&L'     : %trim(srclib)              );
+        replace(cmd: '&N'     : %trim(srcmbr)              );
+
+        return 0;
+
+        begsr *pssr;
+            return -1;
+        endsr;
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Get current fiscal year from the period calendar file
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc getFiscYear;
+         Dcl-PI getFiscYear;
+         End-PI;
+
+          /if defined(KLEMENT_SAUSAGE)
+         Dcl-DS PERCAL1  likerec(PERCALF:*INPUT);
+           Dcl-S found Ind inz(*OFF);
+         End-DS;
+           Dcl-S Year Char(4) static;
+         if (Year<>*blanks);
+             return Year;
+         endif;
+
+         monitor;
+            open PERCAL;
+         on-error;
+            return '0000';
+         endmon;
+
+         setll (%dec(%date():*ISO)) PERCAL;
+         read PERCAL PERCAL1;
+         if not %eof;
+            Year = %editc(PERCAL1.pnFYer:'X');
+         endif;
+         close PERCAL;
+
+         return Year;
+          /else
+         RETURN *Blanks;
+          /endif
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Get current year from the system clock
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc getCalYear;
+         Dcl-PI getCalYear;
+         End-PI;
+           Dcl-S year Char(4) static;
+        if (year<>*blanks);
+            return year;
+        endif;
+        evalr year = %editc(%subdt(%date(): *YEARS): 'X');
+        return year;
+        End-Proc;
+
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Get current price list date from PLFILE
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc getPriceDate;
+         Dcl-PI getPriceDate;
+         End-PI;
+            /if defined(KLEMENT_SAUSAGE)
+         Dcl-S date Char(6);
+         End-DS;
+         Dcl-DS PLFILE1  likerec(PLFILEF:*INPUT);
+         monitor;
+           open PLFILE;
+         on-error;
+           return '000000';
+         endmon;
+
+         setll *start PLFILE;
+         read PLFILE PLFILE1;
+         if not %eof;
+             date = %editc(PLFILE1.PLDATE:'X');
+         endif;
+         close PLFILE;
+
+         return date;
+          /else
+         RETURN *blanks;
+          /endif
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Get Infomration about the source member
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc getSrcMbr;
+         Dcl-PI getSrcMbr;
+           SrcFile Char(21) const;
+           SrcMbr Char(10) const;
+           Text Varchar(52) varying options(*omit);
+           Type Char(10) options(*omit);
+           RtnLib Char(10) options(*omit);
+         End-PI;
+
+         Dcl-PR QUSRMBRD  EXTPGM('QUSRMBRD');
+           RcvVar Char(65535) options(*varsize);
+           RcvVarLen Int(10) const;
+           Format Char(8) const;
+           QualFile Char(20) const;
+           MbrName Char(10) const;
+           Override Char(1) const;
+           ErrorCode Char(8);
+         End-PR;
+
+         Dcl-DS MBRD0100  qualified;
+           Lib Char(10) overlay(MBRD0100:19);
+           Type Char(10) overlay(MBRD0100:49);
+           Text Char(50) overlay(MBRD0100:85);
+         End-DS;
+
+         Dcl-DS ErrCode  qualified;
+           Prov Int(10) inz(%size(ErrCode));
+           Avail Int(10) inz(0);
+         End-DS;
+
+         Dcl-S pos Int(10);
+         Dcl-S lib Char(10);
+         Dcl-S obj Char(10);
+         Dcl-S Quote Char(1) inz('''') static;
+         Dcl-S Libl Char(10) dim(250);
+         Dcl-S Found Ind inz(*OFF);
+
+         // Separate the library from the object name
+
+         pos = %scan('/': srcFile);
+         if (pos>1 and pos<%len(srcFile));
+            lib = %subst(srcFile:1:pos-1);
+            obj = %subst(srcFile:pos+1);
+         else;
+            lib = '*LIBL';
+            obj = %triml(srcFile);
+         endif;
+
+         // If the library name is '*LIBL' retrieve the
+         // library list.
+
+         lib = %xlate('libl':'LIBL': lib);
+         if (lib = '*LIBL');
+             count = liblist(libl);
+         else;
+             count = 1;
+             libl(1) = lib;
+         endif;
+
+
+         // Search each library in the library list until the
+         // member is found.
+
+         found = *OFF;
+
+         for x = 1 to count;
+
+            ErrCode.Avail = 0;
+            QUSRMBRD( MBRD0100
+                    : %size(MBRD0100)
+                    : 'MBRD0100'
+                    : obj + libl(x)
+                    : SrcMbr
+                    : '0'
+                    : ErrCode );
+
+            if (errCode.avail = 0);
+                found = *ON;
+                leave;
+            endif;
+
+         endfor;
+
+         if (not found);
+
+            monitor;
+               ErrCode.Prov = 0;
+               QUSRMBRD( MBRD0100
+                       : %size(MBRD0100)
+                       : 'MBRD0100'
+                       : obj + '*LIBL'
+                       : SrcMbr
+                       : '0'
+                       : ErrCode );
+                found = *ON;
+            on-error;
+                MBRD0100 = *blanks;
+                QMHMOVPM( *BLANKS
+                        : '*COMP     *DIAG     *INFO'
+                        : 3
+                        : '*PGMBDY'
+                        : 1
+                        : x'00000000');
+                QMHRSNEM( *BLANKS
+                        : x'00000000'
+                        : RSNM0100
+                        : %size(RSNM0100)
+                        : 'RSNM0100'
+                        : *NULL
+                        : 0);
+                return *OFF;
+            endmon;
+
+         endif;
+
+         if (%addr(text) <> *null);
+             Text = Quote + %trimr(MBRD0100.Text) + Quote;
+         endif;
+         if (%addr(Type) <> *null);
+             Type = MBRD0100.Type;
+         endif;
+         if (%addr(RtnLib) <> *null);
+             RtnLib = MBRD0100.Lib;
+         endif;
+
+         return found;
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Replace(): replace old string with new string in cmd
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc replace;
+         Dcl-PI replace;
+           cmd Varchar(32702) varying;
+           old Varchar(10) varying const;
+           new Varchar(52) varying const;
+         End-PI;
+           Dcl-S pos Int(10);
+         pos = %scan(old:cmd);
+         dow pos > 0;
+             cmd = %replace(new: cmd: pos: %len(old));
+             pos = %scan(old:cmd);
+         enddo;
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Run the commands in the build command array.
+
+         //a) This starts by writing/receiving the command
+         //as a RQS message so it will appear in the job log,
+         //and can be retrieved with F9=Retrieve.
+
+         //b) The QCAPCMD API is used to run the command.  Note
+         //that QCAPCMD does allow S/36 commands if you're in
+         //the S/36 environment.  It also makes it possible
+         //to prompt the command (if special chars used)
+
+         //c) Any errors are reported to this program's caller
+         //using QMHMOVPM / QMHRSNEM
+
+         //Note: The entire array is processed in one call to
+         //this procedure to preserve call-level semantics.
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc runcmds;
+         Dcl-PI runcmds;
+           cmd Varchar(32702) varying dim(MAX_CMD);
+           count Int(10) const;
+         End-PI;
+
+         Dcl-PR QCAPCMD  ExtPgm('QCAPCMD');
+           cmd Char(32702) const options(*varsize);
+           cmdlen Int(10) const;
+           ctlblk Char(20) const;
+           ctlblklen Int(10) const;
+           ctlblkfmt Char(8) const;
+           updcmd Char(32702) options(*varsize);
+           updcmdsize Int(10) const;
+           updcmdlen Int(10);
+           errorcode Char(8) const;
+         End-PR;
+
+         Dcl-DS CPOP0100  qualified;
+           type Int(10) inz(2);
+           dbcs Char(1) inz('0');
+           prompt Char(1) inz('2');
+           syntax Char(1) inz('0');
+           rtvkey Char(4) inz(x'00000000');
+           ccsid Int(10) inz(0);
+           *N Char(5) inz(x'0000000000');
+         End-DS;
+
+         Dcl-PR QCMDEXC  extpgm('QCMDEXC');
+           cmd Char(32702) const;
+           len Packed(15:5) const;
+         End-PR;
+
+         Dcl-PR QMHRCVPM  ExtPgm('QMHRCVPM');
+           rcvvar Char(32767) options(*varsize);
+           rcvvarlen Int(10) const;
+           format Char(8) const;
+           stack Char(10) const;
+           stackctr Int(10) const;
+           type Char(10) const;
+           msgkey Char(4) const;
+           wait Int(10) const;
+           action Char(10) const;
+           errorcode Char(8) const;
+         End-PR;
+
+         Dcl-DS RCVM0100  qualified;
+           msgid Char(7) overlay(RCVM0100:13);
+           msgkey Char(4) overlay(RCVM0100:22);
+           msgdtalen Int(10) overlay(RCVM0100:45);
+           msgdta Char(8000) overlay(RCVM0100:49);
+         End-DS;
+
+         Dcl-S err Ind inz(*OFF);
+         Dcl-S msgkey Char(4);
+         Dcl-S stack Char(10);
+         Dcl-S msgtype Char(10);
+         Dcl-S retriev Ind inz(*OFF);
+         Dcl-S updcmd Char(32702);
+         Dcl-S updcmdlen Int(10);
+         Dcl-S ignore Ind inz(*OFF);
+         Dcl-S opt Char(4);
+
+        for x = 1 to count;
+
+             updcmdlen = 0;
+
+             if %len(cmd(x))<4 or cmd(x)=*blanks;
+                iter;
+             endif;
+
+             opt = %xlate('ignsql':'IGNSQL': %subst(cmd(x):1:4) );
+
+             ignore=*Off;
+             if ( opt = 'IGN:' );
+                ignore = *on;
+                cmd(x) = %triml(%subst(cmd(x):5));
+             endif;
+
+             if %len(cmd(x))=0 or cmd(x)=*blanks;
+                iter;
+             endif;
+
+             if (peAllowF9 = '*YES');
+                 QMHSNDPM( *blanks
+                         : *blanks
+                         : cmd(x)
+                         : %len(cmd(x))
+                         : '*RQS'
+                         : '*EXT'
+                         : 0
+                         : MsgKey
+                         : *ALLX'00' );
+
+                 QMHRCVPM( RCVM0100
+                         : %size(RCVM0100)
+                         : 'RCVM0100'
+                         : '*'
+                         : 0
+                         : '*RQS'
+                         : msgKey
+                         : 0
+                         : '*OLD'
+                         : x'00000000' );
+                 CPOP0100.RtvKey = msgKey;
+             else;
+                 QMHSNDPM( 'CPF9897'
+                         : 'QCPFMSG   *LIBL'
+                         : cmd(x)
+                         : %len(cmd(x))
+                         : '*DIAG'
+                         : '*EXT'
+                         : 0
+                         : MsgKey
+                         : *ALLX'00' );
+
+             endif;
+
+             monitor;
+                 QCAPCMD( cmd(x)
+                        : %len(cmd(x))
+                        : CPOP0100
+                        : %size(CPOP0100)
+                        : 'CPOP0100'
+                        : updcmd
+                        : %size(updcmd)
+                        : updcmdlen
+                        : x'00000000' );
+                 err = *OFF;
+             on-error;
+                 err = *ON;
+             endmon;
+
+             if (err=*OFF and updcmdlen > 0);
+                 cmd(x) = %subst(updcmd:1:updcmdlen);
+             endif;
+
+             if (err=*ON and ignore=*OFF);
+                QMHMOVPM( *BLANKS
+                        : '*COMP     *DIAG     *INFO'
+                        : 3
+                        : '*PGMBDY'
+                        : 1
+                        : x'00000000');
+                QMHRSNEM( *BLANKS
+                        : x'00000000'
+                        : RSNM0100
+                        : %size(RSNM0100)
+                        : 'RSNM0100'
+                        : *NULL
+                        : 0);
+             endif;
+
+             if (err and ignore=*OFF);
+                 return *OFF;
+             endif;
+
+         endfor;
+
+         return *ON;
+        End-Proc;
+
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //If there's no compile command in the source, we'll
+         //try this one....
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc defaultcmds;
+         Dcl-PI defaultcmds;
+           cmd Varchar(32702) varying dim(MAX_CMD);
+         End-PI;
+           Dcl-S type Char(10);
+         getSrcMbr(srcfile: srcmbr: *omit: type: *omit);
+         select;
+         when type='RPGLE';
+             cmd(1) = 'CRTBNDRPG PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 DBGVIEW(&DV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X) +
+                                 OPTION(&EV)';
+         when type='SQLRPGLE';
+             cmd(1) = 'CRTSQLRPGI OBJ(&O/&ON) +
+                                  SRCFILE(&L/&F) +
+                                  SRCMBR(&N) +
+                                  DBGVIEW(&DV) +
+                                  REPLACE(&R) +
+                                  TEXT(&X) +
+                                  OPTION(&EV)';
+         when type='CLLE';
+             cmd(1) = 'CRTBNDCL  PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 DBGVIEW(&DV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X) +
+                                 OPTION(&EV)';
+         when type='CBLLE';
+             cmd(1) = 'CRTBNDCBL PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 DBGVIEW(&DV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X) +
+                                 OPTION(&EV)';
+         when type='SQLCBLLE';
+             cmd(1) = 'CRTSQLCBLI OBJ(&O/&ON) +
+                                  SRCFILE(&L/&F) +
+                                  SRCMBR(&N) +
+                                  DBGVIEW(&DV) +
+                                  REPLACE(&R) +
+                                  TEXT(&X) +
+                                  OPTION(&EV)';
+         when type='C' or type='CLE';
+             cmd(1) = 'CRTBNDC   PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 DBGVIEW(&DV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X) +
+                                 OPTION(&EV)';
+         when type='RPG';
+             cmd(1) = 'CRTRPGPGM PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 OPTION(&OV &EV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X)';
+         when type='SQLRPG';
+             cmd(1) = 'CRTSQLRPG PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 OPTION(&OV) +
+                                 REPLACE(&R) +
+                                 TEXT(&X)';
+         when type='CLP';
+             cmd(1) = 'CRTCLPGM  PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 REPLACE(&R) +
+                                 TEXT(&X) +
+                                 OPTION(&OV &EV)';
+         when type='CMD';
+             cmd(1) = 'CRTCMD    CMD(&O/&ON) +
+                                 PGM(*LIBL/&ONCL) +
+                                 MODE(*ALL) ALLOW(*ALL) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 REPLACE(&R) +
+                                 TEXT(&X)';
+         when type='RPG36';
+             cmd(1) = 'CRTS36RPG PGM(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 REPLACE(&R) +
+                                 TEXT(&X)';
+         when type='DSPF';
+             cmd(1) = 'CRTDSPF   FILE(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 REPLACE(&R) +
+                                 OPTION(&EV) +
+                                 TEXT(&X)';
+         when type='PRTF';
+             cmd(1) = 'CRTPRTF   FILE(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 REPLACE(&R) +
+                                 OPTION(&EV) +
+                                 TEXT(&X)';
+         when type='LF';
+             cmd(1) = 'CRTLF     FILE(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 OPTION(&EV) +
+                                 TEXT(&X)';
+         when type='PF';
+             cmd(1) = 'CRTPF     FILE(&O/&ON) +
+                                 SRCFILE(&L/&F) +
+                                 SRCMBR(&N) +
+                                 OPTION(&EV) +
+                                 TEXT(&X)';
+         other;
+             cmd(1) = 'RECRT PGM(&O/&ON) MODOPT(*FULL)';
+         endsl;
+
+         return 1;
+        End-Proc;
+
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+         //Load the current library list into an array.
+         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        Dcl-Proc liblist;
+         Dcl-PI liblist;
+           Libl Char(10) dim(250);
+         End-PI;
+
+         Dcl-PR QUSRJOBI  ExtPgm('QUSRJOBI');
+           RcvVar Char(32767) options(*varsize);
+           RcvVarLen Int(10) const;
+           Format Char(8) const;
+           QualJob Char(26) const;
+           IntJobId Char(16) const;
+         End-PR;
+
+         Dcl-DS JOBI0700  qualified;
+           type Char(1) overlay(JOBI0700:61);
+           subtype Char(1) overlay(JOBI0700:62);
+           numsys Int(10) overlay(JOBI0700:65);
+           numprd Int(10) overlay(JOBI0700:69);
+           numcur Int(10) overlay(JOBI0700:73);
+           numusr Int(10) overlay(JOBI0700:77);
+           libl Char(11) overlay(JOBI0700:81) dim(250);
+         End-DS;
+
+         Dcl-S x Int(10);
+         Dcl-S Total Int(10);
+
+           QUSRJOBI( JOBI0700: %size(JOBI0700): 'JOBI0700'
+                   : '*': *blanks);
+
+           total = JOBI0700.numsys
+                 + JOBI0700.numprd
+                 + JOBI0700.numcur
+                 + JOBI0700.numusr;
+
+           for x = 1 to Total;
+               Libl(x) = JOBI0700.libl(X);
+           endfor;
+
+           return Total;
+        End-Proc;
